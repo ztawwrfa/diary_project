@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <ctype.h>
+#include <sys/stat.h>
 //函数声明
 void show_help(void);
 void write_diary(void);
@@ -56,6 +58,7 @@ void write_diary(void)
 {
 	char filename[100];
 	char content[1024];
+	char answer[10];
 	time_t now;
 	struct tm *timeinfo;
 
@@ -64,10 +67,40 @@ void write_diary(void)
 
 	strftime(filename,sizeof(filename),"日记_%Y%m%d.txt",timeinfo);
 
-	printf("正在写入：%s\n",filename);
-	printf("请输入你的日记内容（输入空行结束）");
+	FILE *check_fp = fopen(filename,"r");
+	if(check_fp != NULL)
+	{
+		fclose(check_fp);
+		printf("今天写过日记了\n");
+		printf("是否追加到文件末尾");
+		fgets(answer,sizeof(answer),stdin);
+
+
+		answer[strcspn(answer,"\n")] = 0;
+
+	        if(answer[0] == 'y' || answer[0] == 'Y')
+       		 {
+        	        printf("选择追加模式");
+       		 }
+        	else
+        	{
+                	printf("操作取消");
+                	return;
+        	}
+
+	}
+
 	
-	FILE *fp = fopen(filename,"w");
+	FILE *fp;
+	if(check_fp == NULL)
+	{
+		fp = fopen(filename,"w");
+		printf("创建新日记内容\n");
+	}
+	else
+	{
+		fp = fopen(filename,"a");
+	}
 	
 	if(fp == NULL)
 	{
@@ -79,8 +112,20 @@ void write_diary(void)
 
 	char datetime[100];
         strftime(datetime,sizeof(datetime),"%Y年%m月%d日 %H:%M:%S",timeinfo);
-        fprintf(fp,"===%s===\n\n",datetime);
+        
+	if(check_fp == NULL)
+	{
+	fprintf(fp,"=====我的日记=====");
+	fprintf(fp,"开始日期：%s\n",datetime+1);
+	}
+	else
+	{
+		fputs(datetime,fp);
+	}
+	
 
+	printf("请输入日记内容（空行结束）：\n");
+	printf("------------------------------");
 	printf(">");
 
 	while(fgets(content,sizeof(content),stdin) != NULL)
@@ -97,6 +142,19 @@ void write_diary(void)
 	fclose(fp);
 	printf("--------------------------------\n");
 	printf("文件保存在：%s\n",filename);
+
+	printf("文件信息\n");
+	printf("-位置:%s\n",filename);
+	printf("-时间:%s,datetime + 1");
+
+	FILE *size_fp = fopen(filename,"r");
+	if(size_fp != NULL)
+	{
+		fseek(size_fp,0,SEEK_END);
+		long size = ftell(size_fp);
+		fclose(size_fp);
+		printf(" -大小：%ld字节\n",size);
+	}
 
 }
 void read_diary(void)
