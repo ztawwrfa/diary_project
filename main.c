@@ -4,10 +4,62 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <pthread.h>
+#include <unistd.h>
 //函数声明
 void show_help(void);
 void write_diary(void);
 void read_diary(void);
+
+//全局变量
+char g_draft_buffer[1024 * 1024];
+int g_draft_size = 0;
+pthread_mutex_t g_mutex = PTHREAD_MUTEX_INITIALIZER;
+int g_auto_save_enabled = 1;
+char g_current_filename[256];
+
+void* auto_save_thread(void *arg)
+{
+	char auto_save_file[300];
+
+	printf("自动保存线程已启动");
+
+	while(g_auto_save_enabled)
+	{
+		sleep(5);
+
+		pthread_mutex_lock(&g_mutex);
+
+		if(g_draft_size > 0)
+		{
+			snprintf(auto_save_file,sizeof(auto_save_file),"%s.autosave",g_current_filename);
+
+		
+			FILE *fp = fopen(auto_save_file,"w");
+			if(fp != NULL)
+			{
+				fwrite(g_draft_buffer,1,g_draft_size,fp);
+				fclose(fp);
+
+				int char_count = 0;
+				for(int i = 0;i<g_draft_size;i++)
+				{
+					if(g_draft_buffer[i] =='\n')char_count++;
+				}
+
+				printf("\n[自动保存]已保存%d字节（%d行）到%s\n",g_draft_size,char_count,auto_save_file);
+				printf(">");
+				fflush(stdout);
+			}
+		}
+
+		pthread_mutex_unlock(&g_mutex);
+
+	}
+	printf("线程自动保存结束");
+	return NULL;
+}
+
 
 int main(int argc,char *argv[])
 {
@@ -108,11 +160,20 @@ void write_diary(void)
 	char answer[10];
 	time_t now;
 	struct tm *timeinfo;
+	
+	pthread_t save_thread;
+	int c;
+
+	while((c = getchar()) != '\n' && c != EOF);
+
 
 	time(&now);
 	timeinfo = localtime(&now);
 
 	strftime(filename,sizeof(filename),"日记_%Y%m%d.txt",timeinfo);
+
+	printf("\n日记文件：%s\n",filename);
+	printf("自动保存已开启（五秒保存一次）\n");
 
 	FILE *check_fp = fopen(filename,"r");
 	if(check_fp != NULL)
@@ -157,6 +218,20 @@ void write_diary(void)
 
 	}
 
+	memset(g_draft_buffer,0,sizeof(g_draft_buffer));
+	g_draft_size = 0;
+	g_auto_save_enabled = 1;
+
+	if(pthread_create(&save_thread,NULL,auto_save_thread,NULL) != 0)
+	{
+		printf("无法创建自动保存线程");
+		g_auto_save_enabled = 0;
+	}
+	else
+	{
+		printf("自动保存线程已创建\n");
+	}
+
 	char datetime[100];
         strftime(datetime,sizeof(datetime),"%Y年%m月%d日 %H:%M:%S",timeinfo);
         
@@ -182,8 +257,39 @@ void write_diary(void)
 			break;
 		}
 
+		pthread_mutex_lock(&g_mutex);
+		int content_len = strlen(content);
+		if(g_draft_size + content_len < sizeof(g_draft_buffer))
+		{
+			strcpy(g_draft_buffer + g_draft_size,content);
+			g_draft_size += content_len;
+		}
+
+		pthread_mutex_unlock(&g_mutex);
+
 		fputs(content,fp);
 		printf(">");
+		fflush(stdout);
+	}
+
+	printf("\n正在停止自动保存线程");
+	g_auto_save_enabled = 0;
+
+	pthread_join(save_thread,NULL);
+
+	pthread_mutex_lock(&g_mutex);
+
+
+	if(g_draft_size > 0)
+	{
+		char auto_save_file[300];
+		FILE *backup_fp = fopen(auto_save_file,"w");
+		if(backup_fp != NULL)
+		{
+			fwrite(g_draft_buffer, 1, g_draft_size, backup_fp);
+            		fclose(backup_fp);
+            		printf(" 最终草稿已备份到 %s\n", auto_save_file);
+		}
 	}
 
 	fclose(fp);
